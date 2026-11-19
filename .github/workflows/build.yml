@@ -83,10 +83,18 @@ jobs:
         }
         EOT
 
-    - name: Inject Native Alarm Permissions & Full Screen
+    - name: Inject All Permissions (Media, Files, Alarm, Full Screen)
       run: |
         MANIFEST="android/app/src/main/AndroidManifest.xml"
         sed -i '/<application>/i \
+            <uses-permission android:name="android.permission.CAMERA" /> \
+            <uses-permission android:name="android.permission.RECORD_AUDIO" /> \
+            <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" /> \
+            <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" /> \
+            <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" /> \
+            <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" /> \
+            <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" /> \
+            <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" /> \
             <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" /> \
             <uses-permission android:name="android.permission.USE_EXACT_ALARM" /> \
             <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" /> \
@@ -95,6 +103,9 @@ jobs:
             <uses-permission android:name="android.permission.POST_NOTIFICATIONS" /> \
             <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" /> \
             <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />' $MANIFEST
+        
+        # Force Android to ask for camera/mic at runtime
+        sed -i 's|<application|<uses-feature android:name="android.hardware.camera" android:required="false" />\n    <uses-feature android:name="android.hardware.microphone" android:required="false" />\n    <application|' $MANIFEST
 
         STYLES="android/app/src/main/res/values/styles.xml"
         sed -i 's|<style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">|<style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">\n        <item name="android:windowFullscreen">true</item>\n        <item name="android:windowDrawsSystemBarBackgrounds">true</item>\n        <item name="android:windowTranslucentStatus">true</item>\n        <item name="android:windowTranslucentNavigation">true</item>|' $STYLES
