@@ -18,10 +18,10 @@ jobs:
       with:
         node-version: '22'
 
-    - name: Init Capacitor & Install Native Alarm Plugin
+    - name: Init Capacitor & Install Plugins
       run: |
         npm init -y
-        npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/splash-screen @capacitor/status-bar
+        npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/splash-screen @capacitor/status-bar @capacitor/assets
         npm install @pictalk-speech-made-easy/alarm
         mkdir www
         cp index.html www/
@@ -44,6 +44,10 @@ jobs:
 
         npx cap add android
         npx cap sync
+
+    - name: Generate App Icon from icon.png
+      run: |
+        npx @capacitor/assets generate --android --iconBackgroundColor '#08080a' --splashBackgroundColor '#08080a'
 
     - name: Apply Immersive Mode (Hide Nav Bar)
       run: |
@@ -104,7 +108,6 @@ jobs:
             <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" /> \
             <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />' $MANIFEST
         
-        # Force Android to ask for camera/mic at runtime
         sed -i 's|<application|<uses-feature android:name="android.hardware.camera" android:required="false" />\n    <uses-feature android:name="android.hardware.microphone" android:required="false" />\n    <application|' $MANIFEST
 
         STYLES="android/app/src/main/res/values/styles.xml"
