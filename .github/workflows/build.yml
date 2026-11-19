@@ -21,7 +21,7 @@ jobs:
     - name: Init Capacitor & Install Plugins
       run: |
         npm init -y
-        npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/splash-screen @capacitor/status-bar @capacitor/assets
+        npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/splash-screen @capacitor/status-bar @capacitor/assets @capacitor/camera
         npm install @pictalk-speech-made-easy/alarm
         mkdir www
         cp index.html www/
@@ -96,11 +96,11 @@ jobs:
             <uses-permission android:name="android.permission.CAMERA" /> \
             <uses-permission android:name="android.permission.RECORD_AUDIO" /> \
             <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" /> \
-            <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" /> \
-            <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" /> \
             <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" /> \
             <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" /> \
             <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" /> \
+            <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" /> \
+            <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" /> \
             <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" /> \
             <uses-permission android:name="android.permission.USE_EXACT_ALARM" /> \
             <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" /> \
