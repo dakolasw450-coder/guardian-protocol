@@ -47,6 +47,8 @@ jobs:
 
     - name: Generate App Icon from icon.png
       run: |
+        mkdir -p assets
+        cp icon.png assets/icon.png
         npx @capacitor/assets generate --android --iconBackgroundColor '#08080a' --splashBackgroundColor '#08080a'
 
     - name: Apply Immersive Mode (Hide Nav Bar)
