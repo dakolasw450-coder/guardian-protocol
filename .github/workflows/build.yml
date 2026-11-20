@@ -494,8 +494,8 @@ jobs:
                 try {
                     vib = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
                     long[] p = new long[]{0, 900, 500};
-                                        AudioAttributes va = new AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_ALARM)
+                    AudioAttributes va = new AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ALARM)
                             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                             .build();
                     if (vib != null) {
@@ -900,7 +900,8 @@ jobs:
         if [ -f "$STYLES" ]; then
           sed -i 's/<style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">/<style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar"><item name="android:windowShowWallpaper">true<\/item>/' "$STYLES"
         fi
-            - name: Add alarm sound (uses your alarm_sound.mp3 if you upload one)
+
+    - name: Add alarm sound (uses your alarm_sound.mp3 if you upload one)
       run: |
         mkdir -p www
         if [ -f alarm_sound.mp3 ]; then cp alarm_sound.mp3 www/alarm_sound.mp3; fi
