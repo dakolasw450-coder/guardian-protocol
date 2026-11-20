@@ -22,10 +22,10 @@ jobs:
       run: |
         npm init -y
         npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/splash-screen @capacitor/status-bar @capacitor/assets @capacitor/camera
-        mkdir www
+        mkdir -p www
         cp index.html www/
         npx cap init "The System" "com.ayoub.thesystem" --web-dir=www
-        
+
         cat <<EOT > capacitor.config.json
         {
           "appId": "com.ayoub.thesystem",
@@ -47,14 +47,17 @@ jobs:
     - name: Generate App Icon from icon.png
       run: |
         mkdir -p assets
-        cp icon.png assets/icon.png
-        npx @capacitor/assets generate --android --iconBackgroundColor '#08080a' --splashBackgroundColor '#08080a'
+        if [ -f icon.png ]; then
+          cp icon.png assets/icon.png
+          npx @capacitor/assets generate --android --iconBackgroundColor '#08080a' --splashBackgroundColor '#08080a'
+        fi
 
     - name: Native alarm system (service, receiver, plugin, immersive mode)
       run: |
         DIR="android/app/src/main/java/com/ayoub/thesystem"
-        mkdir -p $DIR
-        cat <<'JAVA_EOF' > $DIR/AlarmCore.java
+        mkdir -p "$DIR"
+
+        cat <<'JAVA_EOF' > "$DIR/AlarmCore.java"
         package com.ayoub.thesystem;
 
         import android.app.AlarmManager;
@@ -91,18 +94,41 @@ jobs:
                 i.putExtra("body", body);
                 i.putExtra("quiet", quiet);
                 i.putExtra("kind", kind);
-                PendingIntent pi = PendingIntent.getBroadcast(c, id, i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                PendingIntent pi = PendingIntent.getBroadcast(
+                        c,
+                        id,
+                        i,
+                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+                );
                 Intent show = new Intent(c, MainActivity.class);
                 show.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-                PendingIntent sp = PendingIntent.getActivity(c, 1, show, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-                am.setAlarmClock(new AlarmManager.AlarmClockInfo(at, sp), pi);
+                PendingIntent sp = PendingIntent.getActivity(
+                        c,
+                        1,
+                        show,
+                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+                );
+                if (am != null) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                        am.setAlarmClock(new AlarmManager.AlarmClockInfo(at, sp), pi);
+                    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
+                    } else {
+                        am.setExact(AlarmManager.RTC_WAKEUP, at, pi);
+                    }
+                }
                 store(c, id, at, title, body, quiet, kind);
             }
 
             static void cancel(Context c, int id) {
                 AlarmManager am = (AlarmManager) c.getSystemService(Context.ALARM_SERVICE);
-                PendingIntent pi = PendingIntent.getBroadcast(c, id, alarmIntent(c, id), PendingIntent.FLAG_NO_CREATE | PendingIntent.FLAG_IMMUTABLE);
-                if (pi != null) {
+                PendingIntent pi = PendingIntent.getBroadcast(
+                        c,
+                        id,
+                        alarmIntent(c, id),
+                        PendingIntent.FLAG_NO_CREATE | PendingIntent.FLAG_IMMUTABLE
+                );
+                if (pi != null && am != null) {
                     am.cancel(pi);
                     pi.cancel();
                 }
@@ -153,7 +179,6 @@ jobs:
                 } catch (Exception e) { }
             }
 
-            // number of incomplete S-Rank tasks, kept up to date by the web app; alarms of kind "s" ring only while it is above zero
             static void setPendingS(Context c, int n) {
                 c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putInt("pendingS", n).apply();
             }
@@ -182,7 +207,15 @@ jobs:
                         JSONObject o = a.getJSONObject(k);
                         long at = o.getLong("at");
                         if (at > now) {
-                            schedule(c, o.getInt("id"), at, o.optString("title", ""), o.optString("body", ""), o.optBoolean("quiet", false), o.optString("kind", ""));
+                            schedule(
+                                    c,
+                                    o.getInt("id"),
+                                    at,
+                                    o.optString("title", ""),
+                                    o.optString("body", ""),
+                                    o.optBoolean("quiet", false),
+                                    o.optString("kind", "")
+                            );
                         }
                     }
                 } catch (Exception e) { }
@@ -191,13 +224,18 @@ jobs:
             static void notifyQuiet(Context c, int id, String title, String body) {
                 try {
                     NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
-                    if (Build.VERSION.SDK_INT >= 26) {
+                    if (Build.VERSION.SDK_INT >= 26 && nm != null) {
                         NotificationChannel ch = new NotificationChannel("na_quiet", "Reminders", NotificationManager.IMPORTANCE_HIGH);
                         nm.createNotificationChannel(ch);
                     }
                     Intent li = new Intent(c, MainActivity.class);
                     li.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-                    PendingIntent pi = PendingIntent.getActivity(c, id, li, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                    PendingIntent pi = PendingIntent.getActivity(
+                            c,
+                            id,
+                            li,
+                            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+                    );
                     Notification n = new NotificationCompat.Builder(c, "na_quiet")
                             .setSmallIcon(android.R.drawable.ic_popup_reminder)
                             .setContentTitle(title)
@@ -206,13 +244,13 @@ jobs:
                             .setContentIntent(pi)
                             .setPriority(NotificationCompat.PRIORITY_HIGH)
                             .build();
-                    nm.notify(id, n);
+                    if (nm != null) nm.notify(id, n);
                 } catch (Exception e) { }
             }
         }
         JAVA_EOF
 
-        cat <<'JAVA_EOF' > $DIR/AlarmReceiver.java
+        cat <<'JAVA_EOF' > "$DIR/AlarmReceiver.java"
         package com.ayoub.thesystem;
 
         import android.content.BroadcastReceiver;
@@ -223,6 +261,7 @@ jobs:
         public class AlarmReceiver extends BroadcastReceiver {
             @Override
             public void onReceive(Context c, Intent i) {
+                if (i == null) return;
                 int id = i.getIntExtra("id", 0);
                 String title = i.getStringExtra("title");
                 String body = i.getStringExtra("body");
@@ -231,7 +270,7 @@ jobs:
                 boolean quiet = i.getBooleanExtra("quiet", false);
                 String kind = i.getStringExtra("kind");
                 AlarmCore.cancel(c, id);
-                // protocol check first: the Lockdown alarm only rings if there are incomplete S-Rank tasks right now
+
                 if ("s".equals(kind) && AlarmCore.pendingS(c) <= 0) {
                     return;
                 }
@@ -252,7 +291,7 @@ jobs:
         }
         JAVA_EOF
 
-        cat <<'JAVA_EOF' > $DIR/BootReceiver.java
+        cat <<'JAVA_EOF' > "$DIR/BootReceiver.java"
         package com.ayoub.thesystem;
 
         import android.content.BroadcastReceiver;
@@ -267,7 +306,7 @@ jobs:
         }
         JAVA_EOF
 
-        cat <<'JAVA_EOF' > $DIR/AlarmService.java
+        cat <<'JAVA_EOF' > "$DIR/AlarmService.java"
         package com.ayoub.thesystem;
 
         import android.app.Notification;
@@ -341,7 +380,12 @@ jobs:
             }
 
             private Notification buildNotification() {
-                PendingIntent pi = PendingIntent.getActivity(this, 2, launchIntent(), PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                PendingIntent pi = PendingIntent.getActivity(
+                        this,
+                        2,
+                        launchIntent(),
+                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+                );
                 return new NotificationCompat.Builder(this, CH)
                         .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
                         .setContentTitle(title)
@@ -366,7 +410,7 @@ jobs:
                     try {
                         ch.setBypassDnd(true);
                     } catch (Exception e) { }
-                    nm.createNotificationChannel(ch);
+                    if (nm != null) nm.createNotificationChannel(ch);
                 }
             }
 
@@ -450,433 +494,4 @@ jobs:
                 try {
                     vib = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
                     long[] p = new long[]{0, 900, 500};
-                    AudioAttributes va = new AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_ALARM)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                            .build();
-                    if (Build.VERSION.SDK_INT >= 26) {
-                        vib.vibrate(VibrationEffect.createWaveform(p, 0), va);   // alarm usage: still vibrates in silent/vibrate mode
-                    } else {
-                        vib.vibrate(p, 0, va);
-                    }
-                } catch (Exception e) { }
-            }
-
-            private void acquireWake() {
-                try {
-                    PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-                    wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "thesystem:alarm");
-                    wl.acquire(30 * 60 * 1000L);
-                } catch (Exception e) { }
-            }
-
-            // a 1px invisible overlay keeps the app allowed to open its screen from the background (needs "display over other apps")
-            private void addOverlay() {
-                try {
-                    if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) return;
-                    WindowManager wm = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
-                    int type = Build.VERSION.SDK_INT >= 26 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY : WindowManager.LayoutParams.TYPE_PHONE;
-                    WindowManager.LayoutParams lp = new WindowManager.LayoutParams(1, 1, type,
-                            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
-                            PixelFormat.TRANSLUCENT);
-                    overlay = new View(this);
-                    wm.addView(overlay, lp);
-                } catch (Exception e) {
-                    overlay = null;
-                }
-            }
-
-            // while ringing: the volume is never touched (lowering or muting it is allowed; vibration keeps going).
-            // Only keep the sound playing and pull the app back to the front if it was left.
-            private void enforce() {
-                try {
-                    if (mp != null && !mp.isPlaying()) mp.start();
-                } catch (Exception e) { }
-                loopCount++;
-                if (!MainActivity.visible && loopCount % 3 == 0) {
-                    try {
-                        startActivity(launchIntent());
-                    } catch (Exception e) { }
-                    try {
-                        NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-                        nm.notify(NOTIF_ID, buildNotification());
-                    } catch (Exception e) { }
-                }
-            }
-
-            @Override
-            public void onDestroy() {
-                ringing = false;
-                ringingId = 0;
-                h.removeCallbacksAndMessages(null);
-                try {
-                    if (mp != null) {
-                        mp.stop();
-                        mp.release();
-                    }
-                } catch (Exception e) { }
-                mp = null;
-                try {
-                    if (vib != null) vib.cancel();
-                } catch (Exception e) { }
-                try {
-                    if (wl != null && wl.isHeld()) wl.release();
-                } catch (Exception e) { }
-                try {
-                    if (overlay != null) {
-                        WindowManager wm = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
-                        wm.removeView(overlay);
-                    }
-                } catch (Exception e) { }
-                overlay = null;
-                try {
-                    stopForeground(true);
-                } catch (Exception e) { }
-                try {
-                    NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-                    nm.cancel(NOTIF_ID);
-                } catch (Exception e) { }
-                MainActivity.refreshRingWindow();
-                super.onDestroy();
-            }
-        }
-        JAVA_EOF
-
-        cat <<'JAVA_EOF' > $DIR/NativeAlarmPlugin.java
-        package com.ayoub.thesystem;
-
-        import android.Manifest;
-        import android.app.NotificationManager;
-        import android.content.Context;
-        import android.content.Intent;
-        import android.content.pm.PackageManager;
-        import android.net.Uri;
-        import android.os.Build;
-        import android.os.PowerManager;
-        import android.provider.Settings;
-        import androidx.core.app.ActivityCompat;
-        import androidx.core.app.NotificationManagerCompat;
-        import androidx.core.content.ContextCompat;
-        import com.getcapacitor.JSObject;
-        import com.getcapacitor.Plugin;
-        import com.getcapacitor.PluginCall;
-        import com.getcapacitor.PluginMethod;
-        import com.getcapacitor.annotation.CapacitorPlugin;
-
-        @CapacitorPlugin(name = "NativeAlarm")
-        public class NativeAlarmPlugin extends Plugin {
-            private static NativeAlarmPlugin inst;
-
-            @Override
-            public void load() {
-                inst = this;
-            }
-
-            static void emitRing(int id) {
-                try {
-                    if (inst == null) return;
-                    JSObject o = new JSObject();
-                    o.put("id", id);
-                    inst.notifyListeners("alarmRang", o);
-                } catch (Exception e) { }
-            }
-
-            @PluginMethod
-            public void schedule(PluginCall call) {
-                Integer id = call.getInt("id");
-                Double at = call.getDouble("at");
-                if (id == null || at == null) {
-                    call.reject("bad arguments");
-                    return;
-                }
-                String t = call.getString("title", "");
-                String b = call.getString("body", "");
-                Boolean q = call.getBoolean("quiet", false);
-                String kind = call.getString("kind", "");
-                AlarmCore.schedule(getContext(), id.intValue(), at.longValue(), t, b, q != null && q.booleanValue(), kind);
-                call.resolve();
-            }
-
-            @PluginMethod
-            public void setPending(PluginCall call) {
-                Integer n = call.getInt("count");
-                AlarmCore.setPendingS(getContext(), n == null ? 0 : n.intValue());
-                call.resolve();
-            }
-
-            @PluginMethod
-            public void cancel(PluginCall call) {
-                Integer id = call.getInt("id");
-                if (id != null) AlarmCore.cancel(getContext(), id.intValue());
-                call.resolve();
-            }
-
-            @PluginMethod
-            public void stop(PluginCall call) {
-                AlarmService.stopAll(getContext());
-                MainActivity.refreshRingWindow();
-                call.resolve();
-            }
-
-            @PluginMethod
-            public void ringNow(PluginCall call) {
-                if (!AlarmService.ringing) {
-                    int id = call.getInt("id", 0);
-                    Intent i = new Intent(getContext(), AlarmService.class);
-                    i.putExtra("id", id);
-                    i.putExtra("title", call.getString("title", ""));
-                    i.putExtra("body", call.getString("body", ""));
-                    ContextCompat.startForegroundService(getContext(), i);
-                }
-                call.resolve();
-            }
-
-            private boolean notifOk(Context c) {
-                return NotificationManagerCompat.from(c).areNotificationsEnabled();
-            }
-
-            private boolean overlayOk(Context c) {
-                return Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(c);
-            }
-
-            private boolean fullScreenOk(Context c) {
-                if (Build.VERSION.SDK_INT >= 34) {
-                    NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
-                    return nm.canUseFullScreenIntent();
-                }
-                return true;
-            }
-
-            private boolean batteryOk(Context c) {
-                if (Build.VERSION.SDK_INT < 23) return true;
-                PowerManager pm = (PowerManager) c.getSystemService(Context.POWER_SERVICE);
-                return pm.isIgnoringBatteryOptimizations(c.getPackageName());
-            }
-
-            @PluginMethod
-            public void getState(PluginCall call) {
-                Context c = getContext();
-                JSObject o = new JSObject();
-                o.put("ringing", AlarmService.ringing);
-                o.put("id", AlarmService.ringingId);
-                o.put("notif", notifOk(c));
-                o.put("overlay", overlayOk(c));
-                o.put("fullScreen", fullScreenOk(c));
-                o.put("battery", batteryOk(c));
-                o.put("pending", AlarmCore.pending(c));
-                call.resolve(o);
-            }
-
-            private void launch(Intent i) {
-                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                getContext().startActivity(i);
-            }
-
-            @PluginMethod
-            public void openSettings(PluginCall call) {
-                String type = call.getString("type", "");
-                Context c = getContext();
-                String pkg = c.getPackageName();
-                try {
-                    if ("notif".equals(type)) {
-                        if (Build.VERSION.SDK_INT >= 33
-                                && ContextCompat.checkSelfPermission(c, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-                                && getActivity() != null) {
-                            ActivityCompat.requestPermissions(getActivity(), new String[]{Manifest.permission.POST_NOTIFICATIONS}, 7731);
-                        } else {
-                            Intent i = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
-                            i.putExtra(Settings.EXTRA_APP_PACKAGE, pkg);
-                            launch(i);
-                        }
-                    } else if ("overlay".equals(type)) {
-                        launch(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + pkg)));
-                    } else if ("fullScreen".equals(type)) {
-                        launch(new Intent("android.settings.MANAGE_APP_USE_FULL_SCREEN_INTENT", Uri.parse("package:" + pkg)));
-                    } else if ("battery".equals(type)) {
-                        launch(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + pkg)));
-                    }
-                } catch (Exception e) {
-                    try {
-                        launch(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + pkg)));
-                    } catch (Exception x) { }
-                }
-                call.resolve();
-            }
-        }
-        JAVA_EOF
-
-        cat <<'JAVA_EOF' > $DIR/MainActivity.java
-        package com.ayoub.thesystem;
-
-        import android.os.Build;
-        import android.os.Bundle;
-        import android.content.Intent;
-        import android.view.WindowManager;
-        import androidx.core.view.WindowCompat;
-        import androidx.core.view.WindowInsetsCompat;
-        import androidx.core.view.WindowInsetsControllerCompat;
-        import com.getcapacitor.BridgeActivity;
-
-        public class MainActivity extends BridgeActivity {
-            static volatile boolean visible = false;
-            static volatile MainActivity cur = null;
-
-            @Override
-            protected void onCreate(Bundle savedInstanceState) {
-                registerPlugin(NativeAlarmPlugin.class);
-                super.onCreate(savedInstanceState);
-                cur = this;
-                applyRingWindow();
-                hideSystemBars();
-            }
-
-            @Override
-            protected void onNewIntent(Intent intent) {
-                super.onNewIntent(intent);
-                applyRingWindow();
-            }
-
-            @Override
-            public void onResume() {
-                super.onResume();
-                cur = this;
-                visible = true;
-                applyRingWindow();
-            }
-
-            @Override
-            public void onPause() {
-                visible = false;
-                super.onPause();
-            }
-
-            @Override
-            public void onWindowFocusChanged(boolean hasFocus) {
-                super.onWindowFocusChanged(hasFocus);
-                if (hasFocus) {
-                    hideSystemBars();
-                }
-            }
-
-            static void refreshRingWindow() {
-                final MainActivity a = cur;
-                if (a == null) return;
-                try {
-                    a.runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            a.applyRingWindow();
-                        }
-                    });
-                } catch (Exception e) { }
-            }
-
-            // while an alarm rings: show over the lock screen, wake the screen, and (if "App pinning" is enabled in system settings) pin the app
-            void applyRingWindow() {
-                boolean r = AlarmService.ringing;
-                try {
-                    if (Build.VERSION.SDK_INT >= 27) {
-                        setShowWhenLocked(r);
-                        setTurnScreenOn(r);
-                    } else if (r) {
-                        getWindow().addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
-                    } else {
-                        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
-                    }
-                    if (r) {
-                        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-                    } else {
-                        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-                    }
-                } catch (Exception e) { }
-                try {
-                    if (r) {
-                        startLockTask();
-                    } else {
-                        stopLockTask();
-                    }
-                } catch (Exception e) { }
-            }
-
-            private void hideSystemBars() {
-                WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
-                WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
-                if (controller != null) {
-                    controller.hide(WindowInsetsCompat.Type.systemBars());
-                    controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
-                }
-            }
-        }
-        JAVA_EOF
-
-    - name: Inject All Permissions (Media, Files, Alarm, Full Screen)
-      run: |
-        python3 - <<'PY'
-        p = "android/app/src/main/AndroidManifest.xml"
-        s = open(p, encoding="utf8").read()
-        perms = [
-          "CAMERA", "RECORD_AUDIO", "MODIFY_AUDIO_SETTINGS",
-          "READ_MEDIA_IMAGES", "READ_MEDIA_VIDEO", "READ_MEDIA_AUDIO",
-          "SCHEDULE_EXACT_ALARM", "USE_EXACT_ALARM", "USE_FULL_SCREEN_INTENT",
-          "WAKE_LOCK", "FOREGROUND_SERVICE", "POST_NOTIFICATIONS",
-          "RECEIVE_BOOT_COMPLETED", "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
-          "VIBRATE", "FOREGROUND_SERVICE_MEDIA_PLAYBACK", "SYSTEM_ALERT_WINDOW",
-        ]
-        add = "".join(f'    <uses-permission android:name="android.permission.{x}" />\n' for x in perms)
-        add += '    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />\n'
-        add += '    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />\n'
-        add += '    <uses-feature android:name="android.hardware.camera" android:required="false" />\n'
-        add += '    <uses-feature android:name="android.hardware.microphone" android:required="false" />\n'
-        assert "</manifest>" in s, "closing manifest tag not found"
-        s = s.replace("</manifest>", add + "</manifest>")
-        comps = (
-          '        <receiver android:name="com.ayoub.thesystem.AlarmReceiver" android:exported="false" />\n'
-          '        <receiver android:name="com.ayoub.thesystem.BootReceiver" android:exported="true">\n'
-          '            <intent-filter>\n'
-          '                <action android:name="android.intent.action.BOOT_COMPLETED" />\n'
-          '                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />\n'
-          '            </intent-filter>\n'
-          '        </receiver>\n'
-          '        <service android:name="com.ayoub.thesystem.AlarmService" android:exported="false" android:foregroundServiceType="mediaPlayback" />\n'
-        )
-        assert "</application>" in s, "closing application tag not found"
-        s = s.replace("</application>", comps + "    </application>")
-        open(p, "w", encoding="utf8").write(s)
-        PY
-        echo "uses-permission count:"
-        grep -c "uses-permission" android/app/src/main/AndroidManifest.xml
-
-        STYLES="android/app/src/main/res/values/styles.xml"
-        sed -i 's|<style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">|<style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">\n        <item name="android:windowFullscreen">true</item>\n        <item name="android:windowDrawsSystemBarBackgrounds">true</item>\n        <item name="android:windowTranslucentStatus">true</item>\n        <item name="android:windowTranslucentNavigation">true</item>|' $STYLES
-
-    - name: Add alarm sound (uses your alarm_sound.mp3 if you upload one)
-      run: |
-        if [ -f alarm_sound.mp3 ]; then
-          cp alarm_sound.mp3 www/alarm_sound.mp3
-        else
-          python3 - <<'PY'
-        import wave, struct, math
-        rate = 22050
-        w = wave.open("www/alarm_sound.mp3", "wb")   # WAV data; Android detects the format from content
-        w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate)
-        frames = bytearray()
-        for i in range(rate * 2):
-            t = i / rate
-            f = 900 + 500 * (1 if (t % 0.5) < 0.25 else 0)
-            frames += struct.pack("<h", int(20000 * math.sin(2 * math.pi * f * t)))
-        w.writeframes(bytes(frames)); w.close()
-        PY
-        fi
-        npx cap copy android
-
-    - name: Build APK
-      run: |
-        cd android
-        chmod +x gradlew
-        ./gradlew assembleDebug
-
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: TheSystem-Final-APK
-        path: android/app/build/outputs/apk/debug/app-debug.apk
+                    AudioAttributes va = new AudioAttribu
