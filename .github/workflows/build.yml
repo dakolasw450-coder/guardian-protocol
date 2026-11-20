@@ -494,4 +494,442 @@ jobs:
                 try {
                     vib = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
                     long[] p = new long[]{0, 900, 500};
-                    AudioAttributes va = new AudioAttribu
+                                        AudioAttributes va = new AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_ALARM)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .build();
+                    if (vib != null) {
+                        if (Build.VERSION.SDK_INT >= 26) {
+                            vib.vibrate(VibrationEffect.createWaveform(p, 0), va);
+                        } else {
+                            vib.vibrate(p, 0, va);
+                        }
+                    }
+                } catch (Exception e) { }
+            }
+
+            private void acquireWake() {
+                try {
+                    PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                    if (pm != null) {
+                        wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "thesystem:alarm");
+                        wl.acquire(30 * 60 * 1000L);
+                    }
+                } catch (Exception e) { }
+            }
+
+            private void addOverlay() {
+                try {
+                    if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) return;
+                    WindowManager wm = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
+                    int type = Build.VERSION.SDK_INT >= 26
+                            ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                            : WindowManager.LayoutParams.TYPE_PHONE;
+                    WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
+                            1,
+                            1,
+                            type,
+                            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                            PixelFormat.TRANSLUCENT
+                    );
+                    overlay = new View(this);
+                    if (wm != null) wm.addView(overlay, lp);
+                } catch (Exception e) {
+                    overlay = null;
+                }
+            }
+
+            private void enforce() {
+                try {
+                    if (mp != null && !mp.isPlaying()) mp.start();
+                } catch (Exception e) { }
+                loopCount++;
+                if (!MainActivity.visible && loopCount % 3 == 0) {
+                    try {
+                        startActivity(launchIntent());
+                    } catch (Exception e) { }
+                    try {
+                        NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                        if (nm != null) nm.notify(NOTIF_ID, buildNotification());
+                    } catch (Exception e) { }
+                }
+            }
+
+            @Override
+            public void onDestroy() {
+                ringing = false;
+                ringingId = 0;
+                h.removeCallbacksAndMessages(null);
+                try {
+                    if (mp != null) {
+                        mp.stop();
+                        mp.release();
+                    }
+                } catch (Exception e) { }
+                mp = null;
+                try {
+                    if (vib != null) vib.cancel();
+                } catch (Exception e) { }
+                try {
+                    if (wl != null && wl.isHeld()) wl.release();
+                } catch (Exception e) { }
+                try {
+                    if (overlay != null) {
+                        WindowManager wm = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
+                        if (wm != null) wm.removeView(overlay);
+                    }
+                } catch (Exception e) { }
+                overlay = null;
+                try {
+                    stopForeground(true);
+                } catch (Exception e) { }
+                try {
+                    NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                    if (nm != null) nm.cancel(NOTIF_ID);
+                } catch (Exception e) { }
+                MainActivity.refreshRingWindow();
+                super.onDestroy();
+            }
+        }
+        JAVA_EOF
+
+        cat <<'JAVA_EOF' > "$DIR/NativeAlarmPlugin.java"
+        package com.ayoub.thesystem;
+
+        import android.Manifest;
+        import android.app.NotificationManager;
+        import android.content.Context;
+        import android.content.Intent;
+        import android.content.pm.PackageManager;
+        import android.net.Uri;
+        import android.os.Build;
+        import android.os.PowerManager;
+        import android.provider.Settings;
+        import androidx.core.app.ActivityCompat;
+        import androidx.core.app.NotificationManagerCompat;
+        import androidx.core.content.ContextCompat;
+        import com.getcapacitor.JSObject;
+        import com.getcapacitor.Plugin;
+        import com.getcapacitor.PluginCall;
+        import com.getcapacitor.PluginMethod;
+        import com.getcapacitor.annotation.CapacitorPlugin;
+
+        @CapacitorPlugin(name = "NativeAlarm")
+        public class NativeAlarmPlugin extends Plugin {
+            private static NativeAlarmPlugin inst;
+
+            @Override
+            public void load() {
+                inst = this;
+            }
+
+            static void emitRing(int id) {
+                try {
+                    if (inst == null) return;
+                    JSObject o = new JSObject();
+                    o.put("id", id);
+                    inst.notifyListeners("alarmRang", o);
+                } catch (Exception e) { }
+            }
+
+            @PluginMethod
+            public void schedule(PluginCall call) {
+                Integer id = call.getInt("id");
+                Double at = call.getDouble("at");
+                if (id == null || at == null) {
+                    call.reject("bad arguments");
+                    return;
+                }
+                String t = call.getString("title", "");
+                String b = call.getString("body", "");
+                Boolean q = call.getBoolean("quiet", false);
+                String kind = call.getString("kind", "");
+                AlarmCore.schedule(getContext(), id.intValue(), at.longValue(), t, b, q != null && q.booleanValue(), kind);
+                call.resolve();
+            }
+
+            @PluginMethod
+            public void setPending(PluginCall call) {
+                Integer n = call.getInt("count");
+                AlarmCore.setPendingS(getContext(), n == null ? 0 : n.intValue());
+                call.resolve();
+            }
+
+            @PluginMethod
+            public void cancel(PluginCall call) {
+                Integer id = call.getInt("id");
+                if (id != null) AlarmCore.cancel(getContext(), id.intValue());
+                call.resolve();
+            }
+
+            @PluginMethod
+            public void stop(PluginCall call) {
+                AlarmService.stopAll(getContext());
+                MainActivity.refreshRingWindow();
+                call.resolve();
+            }
+
+            @PluginMethod
+            public void ringNow(PluginCall call) {
+                if (!AlarmService.ringing) {
+                    int id = call.getInt("id", 0);
+                    Intent i = new Intent(getContext(), AlarmService.class);
+                    i.putExtra("id", id);
+                    i.putExtra("title", call.getString("title", ""));
+                    i.putExtra("body", call.getString("body", ""));
+                    ContextCompat.startForegroundService(getContext(), i);
+                }
+                call.resolve();
+            }
+
+            private boolean notifOk(Context c) {
+                return NotificationManagerCompat.from(c).areNotificationsEnabled();
+            }
+
+            private boolean overlayOk(Context c) {
+                return Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(c);
+            }
+
+            private boolean fullScreenOk(Context c) {
+                if (Build.VERSION.SDK_INT >= 34) {
+                    NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
+                    return nm != null && nm.canUseFullScreenIntent();
+                }
+                return true;
+            }
+
+            private boolean batteryOk(Context c) {
+                if (Build.VERSION.SDK_INT < 23) return true;
+                PowerManager pm = (PowerManager) c.getSystemService(Context.POWER_SERVICE);
+                return pm != null && pm.isIgnoringBatteryOptimizations(c.getPackageName());
+            }
+
+            @PluginMethod
+            public void getState(PluginCall call) {
+                Context c = getContext();
+                JSObject o = new JSObject();
+                o.put("ringing", AlarmService.ringing);
+                o.put("id", AlarmService.ringingId);
+                o.put("notif", notifOk(c));
+                o.put("overlay", overlayOk(c));
+                o.put("fullScreen", fullScreenOk(c));
+                o.put("battery", batteryOk(c));
+                o.put("pending", AlarmCore.pending(c));
+                call.resolve(o);
+            }
+
+            private void launch(Intent i) {
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(i);
+            }
+
+            @PluginMethod
+            public void openSettings(PluginCall call) {
+                String type = call.getString("type", "");
+                Context c = getContext();
+                String pkg = c.getPackageName();
+                try {
+                    if ("notif".equals(type)) {
+                        if (Build.VERSION.SDK_INT >= 33
+                                && ContextCompat.checkSelfPermission(c, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                                && getActivity() != null) {
+                            ActivityCompat.requestPermissions(getActivity(), new String[]{Manifest.permission.POST_NOTIFICATIONS}, 101);
+                        } else {
+                            Intent i = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+                            i.putExtra(Settings.EXTRA_APP_PACKAGE, pkg);
+                            launch(i);
+                        }
+                    } else if ("overlay".equals(type)) {
+                        launch(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + pkg)));
+                    } else if ("fullScreen".equals(type)) {
+                        launch(new Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:" + pkg)));
+                    } else if ("battery".equals(type)) {
+                        launch(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + pkg)));
+                    }
+                } catch (Exception e) {
+                    try {
+                        launch(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + pkg)));
+                    } catch (Exception x) { }
+                }
+                call.resolve();
+            }
+        }
+        JAVA_EOF
+
+        cat <<'JAVA_EOF' > "$DIR/MainActivity.java"
+        package com.ayoub.thesystem;
+
+        import android.os.Build;
+        import android.os.Bundle;
+        import android.content.Intent;
+        import android.view.WindowManager;
+        import androidx.core.view.WindowCompat;
+        import androidx.core.view.WindowInsetsCompat;
+        import androidx.core.view.WindowInsetsControllerCompat;
+        import com.getcapacitor.BridgeActivity;
+
+        public class MainActivity extends BridgeActivity {
+            static volatile boolean visible = false;
+            static MainActivity cur = null;
+
+            @Override
+            protected void onCreate(Bundle savedInstanceState) {
+                registerPlugin(NativeAlarmPlugin.class);
+                super.onCreate(savedInstanceState);
+                cur = this;
+                applyRingWindow();
+                hideSystemBars();
+            }
+
+            @Override
+            protected void onNewIntent(Intent intent) {
+                super.onNewIntent(intent);
+                applyRingWindow();
+            }
+
+            @Override
+            public void onResume() {
+                super.onResume();
+                cur = this;
+                visible = true;
+                applyRingWindow();
+                hideSystemBars();
+            }
+
+            @Override
+            public void onPause() {
+                visible = false;
+                super.onPause();
+            }
+
+            @Override
+            public void onWindowFocusChanged(boolean hasFocus) {
+                super.onWindowFocusChanged(hasFocus);
+                if (hasFocus) {
+                    hideSystemBars();
+                }
+            }
+
+            static void refreshRingWindow() {
+                final MainActivity a = cur;
+                if (a == null) return;
+                try {
+                    a.runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            a.applyRingWindow();
+                        }
+                    });
+                } catch (Exception e) { }
+            }
+
+            void applyRingWindow() {
+                boolean r = AlarmService.ringing;
+                try {
+                    if (Build.VERSION.SDK_INT >= 27) {
+                        setShowWhenLocked(r);
+                        setTurnScreenOn(r);
+                    }
+                    if (r) {
+                        getWindow().addFlags(
+                                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+                                        | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                                        | WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                        );
+                    } else {
+                        getWindow().clearFlags(
+                                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+                                        | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                                        | WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                        );
+                    }
+                } catch (Exception e) { }
+            }
+
+            private void hideSystemBars() {
+                try {
+                    WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+                    WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+                    if (controller != null) {
+                        controller.hide(WindowInsetsCompat.Type.systemBars());
+                        controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                    }
+                } catch (Exception e) { }
+            }
+        }
+        JAVA_EOF
+
+    - name: Inject All Permissions (Media, Files, Alarm, Full Screen)
+      run: |
+        python3 - <<'PY'
+        p = "android/app/src/main/AndroidManifest.xml"
+        s = open(p, encoding="utf-8").read()
+        perms = [
+            "CAMERA", "RECORD_AUDIO", "MODIFY_AUDIO_SETTINGS",
+            "READ_MEDIA_IMAGES", "READ_MEDIA_VIDEO", "READ_MEDIA_AUDIO",
+            "SCHEDULE_EXACT_ALARM", "USE_EXACT_ALARM", "USE_FULL_SCREEN_INTENT",
+            "WAKE_LOCK", "FOREGROUND_SERVICE", "POST_NOTIFICATIONS",
+            "RECEIVE_BOOT_COMPLETED", "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+            "VIBRATE", "FOREGROUND_SERVICE_MEDIA_PLAYBACK", "SYSTEM_ALERT_WINDOW"
+        ]
+        add = "".join(f'    <uses-permission android:name="android.permission.{x}" />\n' for x in perms)
+        add += '    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />\n'
+        add += '    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />\n'
+        add += '    <uses-feature android:name="android.hardware.camera" android:required="false" />\n'
+        add += '    <uses-feature android:name="android.hardware.microphone" android:required="false" />\n'
+        assert "</manifest>" in s, "closing manifest tag not found"
+        s = s.replace("</manifest>", add + "</manifest>")
+        comps = (
+            '        <receiver android:name="com.ayoub.thesystem.AlarmReceiver" android:exported="false" />\n'
+            '        <receiver android:name="com.ayoub.thesystem.BootReceiver" android:exported="true">\n'
+            '            <intent-filter>\n'
+            '                <action android:name="android.intent.action.BOOT_COMPLETED" />\n'
+            '                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />\n'
+            '            </intent-filter>\n'
+            '        </receiver>\n'
+            '        <service android:name="com.ayoub.thesystem.AlarmService" android:exported="false" android:foregroundServiceType="mediaPlayback" />\n'
+        )
+        assert "</application>" in s, "closing application tag not found"
+        s = s.replace("</application>", comps + "</application>")
+        open(p, "w", encoding="utf-8").write(s)
+        PY
+        echo "uses-permission count:"
+        grep -c "uses-permission" android/app/src/main/AndroidManifest.xml
+
+        STYLES="android/app/src/main/res/values/styles.xml"
+        if [ -f "$STYLES" ]; then
+          sed -i 's/<style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">/<style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar"><item name="android:windowShowWallpaper">true<\/item>/' "$STYLES"
+        fi
+
+    - name: Add alarm sound (uses your alarm_sound.mp3 if you upload one)
+      run: |
+        if [ -f alarm_sound.mp3 ]; then
+          cp alarm_sound.mp3 www/alarm_sound.mp3
+        else
+          python3 - <<'PY'
+          import wave, struct, math
+          rate = 22050
+          w = wave.open("www/alarm_sound.mp3", "wb")
+          w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate)
+          frames = bytearray()
+          for i in range(rate * 2):
+              t = i / rate
+              f = 900 + 300 * (1 if (t % 0.5) < 0.25 else 0)
+              frames += struct.pack("<h", int(20000 * math.sin(2 * math.pi * f * t)))
+          w.writeframes(bytes(frames)); w.close()
+          PY
+        fi
+        npx cap copy android
+
+    - name: Build APK
+      run: |
+        cd android
+        chmod +x gradlew
+        ./gradlew assembleDebug
+
+    - name: Upload APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: TheSystem-Final-APK
+        path: android/app/build/outputs/apk/debug/app-debug.apk
+        
